@@ -1,12 +1,16 @@
 use ggez::*;
 use ggez::event::*;
 use glam::*;
+use rand::Rng;
 
 const PLAYER_WIDTH: f32 = 20.;
 const PLAYER_HEIGHT: f32 = 100.;
 // Padding to edge of screen
-const BUFFER: f32 = 10.;
+const BUFFER: f32 = 0.;
 const BAT_SPEED: f32 = 10.;
+const BALL_SPEED: f32 = 10.;
+const BALL_DIA: f32 = 15.;
+const BALL_RAD: f32 = BALL_DIA*0.5;
 
 #[derive(PartialEq)]
 enum Direction {
@@ -20,7 +24,8 @@ struct Ball {
     point: Vec2,
     radius: f32,
     tolerance: f32,
-    position: Vec2
+    position: Vec2,
+    direction: Vec2
 }
 
 struct MainState {
@@ -35,21 +40,75 @@ struct Player {
     mode: graphics::DrawMode,
     rect: graphics::Rect,
     position: Vec2,
+    score: i32
 }
 
 impl Ball {
     // create the ball
     fn new(_ctx: &mut Context) -> Self {
         let (screen_width, screen_height) = graphics::drawable_size(_ctx);
+        // generate random vector information
+        let mut rng = rand::thread_rng();
+        let rand_x: f32 = rng.gen();
+        let rand_y: f32 = rng.gen();
+
         let c = Ball {
             color: graphics::Color::WHITE,
             mode: graphics::DrawMode::fill(),
             point: Vec2::new(0., 0.),
-            radius: 15.,
-            tolerance: 1.,
-            position: Vec2::new(screen_width/2., screen_height/2.)
+            radius: BALL_DIA,
+            tolerance: 0.5,
+            position: Vec2::new(screen_width/2., screen_height/2.),
+            direction: Vec2::new(rand_x, rand_y)
         };
         c
+    }
+
+    fn reset_ball( &mut self, _ctx: &mut Context) -> GameResult {
+        let (screen_width, screen_height) = graphics::drawable_size(_ctx);
+        let mut rng = rand::thread_rng();
+        let rand_x: f32 = rng.gen();
+        let rand_y: f32 = rng.gen();
+
+        self.position = Vec2::new(screen_width/2., screen_height/2.);
+        self.direction = Vec2::new(rand_x, rand_y);
+        Ok(())
+    }
+
+    //move the ball in a direction
+    fn move_ball(&mut self, _ctx: &mut Context, player1: &mut Player, player2: &mut Player) -> GameResult {
+
+        let (screen_width, screen_height) = graphics::drawable_size(_ctx);
+
+        // reverse the direction if it hits top or bottom boundary
+        if self.position.y < BALL_RAD || self.position.y > (screen_height-BALL_RAD) {
+            self.direction.y = -self.direction.y;
+        }
+
+        // If the ball bounces off player1
+        if self.position.x < (PLAYER_WIDTH + BUFFER) {
+            if self.position.y > player1.position.y && self.position.y < (player1.position.y+PLAYER_HEIGHT) {
+                self.direction.x = -self.direction.x;
+            } else {
+                // Player2 scores
+                player2.score += 1;
+                self.reset_ball(_ctx)?;
+            }
+        }
+
+                // If the ball bounces off player 2
+        if self.position.x > screen_width-PLAYER_WIDTH-BUFFER {
+            if self.position.y > player2.position.y && self.position.y < (player2.position.y+PLAYER_HEIGHT) {
+                self.direction.x = -self.direction.x;
+            } else {
+                player1.score += 1;
+                self.reset_ball(_ctx)?;
+            }
+        }
+
+        self.position += self.direction * BALL_SPEED;
+
+        Ok(())
     }
 
 }
@@ -61,7 +120,8 @@ impl Player {
         let p = Player { color: graphics::Color::WHITE, 
             mode: graphics::DrawMode::fill(),
             rect: graphics::Rect::new(0., 0., PLAYER_WIDTH, PLAYER_HEIGHT),
-            position: Vec2::new(0., screen_height/2.) };
+            position: Vec2::new(0., screen_height/2.),
+            score: 0 };
         p
     }
 
@@ -114,6 +174,7 @@ impl event::EventHandler<ggez::GameError> for MainState {
         else if input::keyboard::is_key_pressed(ctx, KeyCode::Down) {
             self.player2.update_position(ctx, Direction::Down)?;
         }
+        self.ball.move_ball(ctx, &mut self.player1, &mut self.player2)?;
         Ok(())
     }
 
@@ -137,7 +198,12 @@ impl event::EventHandler<ggez::GameError> for MainState {
 
         //Ball
         let ball = graphics::Mesh::new_circle(ctx, self.ball.mode, self.ball.point, self.ball.radius, self.ball.tolerance, self.ball.color)?;
-        graphics::draw(ctx, &ball, (Vec2::new(screen_width/2., screen_height/2.),))?;
+        //graphics::draw(ctx, &ball, (Vec2::new(screen_width/2., screen_height/2.),))?;
+        graphics::draw(ctx, &ball, (Vec2::new(self.ball.position.x, self.ball.position.y),))?;
+
+        // Score
+        let score = graphics::Text::new(format!("{}      {}", self.player1.score, self.player2.score));
+        graphics::draw(ctx, &score, (Vec2::new((screen_width-score.width(ctx))/2., 20.),))?;
 
         //println!("Hello there! dt = {}ms", self.dt.as_millis());
         graphics::present(ctx)?;
